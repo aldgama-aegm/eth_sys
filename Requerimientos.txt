@@ -1,5 +1,5 @@
-streamlit
 biosteam
 thermosteam
-google-generativeai
 pandas
+google-generativeai
+graphviz
