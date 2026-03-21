@@ -19,7 +19,7 @@ st.markdown("""
 # Configuración de Gemini desde Secrets
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model_ai = genai.GenerativeModel('gemini-1.5-flash')
+    model_ai = genai.GenerativeModel('gemini-2.5-pro')
 except:
     st.warning("⚠️ GEMINI_API_KEY no detectada en Secrets. El tutor IA estará desactivado.")
 
