@@ -108,7 +108,7 @@ if sim_btn:
                     st.divider()
                     st.subheader("🤖 Análisis del Tutor IA")
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-pro')
                     prompt = f"Explica la eficiencia de este flash a {p_fla} Pa con {e_flow} kmol/h de etanol de entrada."
                     st.info(model.generate_content(prompt).text)
 
