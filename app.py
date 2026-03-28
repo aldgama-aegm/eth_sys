@@ -1,57 +1,84 @@
 import streamlit as st
-import sys
+import pandas as pd
 
-# 1. Configuración de página (SIEMPRE PRIMERO)
+# --- PARCHE DE COMPATIBILIDAD ---
+import sys
+try:
+    import altair as alt
+    if not hasattr(alt, 'vegalite'):
+        sys.modules['altair.vegalite.v4'] = alt
+except:
+    pass
+
+# --- IMPORTACIONES CIENTÍFICAS ---
+try:
+    import biosteam as bst
+    import thermosteam as tmo
+    import google.generativeai as genai
+    LIBS_OK = True
+except Exception as e:
+    LIBS_OK = False
+    ERR_DETAIL = str(e)
+
+# Configuración de página
 st.set_page_config(page_title="BioSTEAM Hub", layout="wide")
 
-# 2. Intento de carga de librerías con diagnóstico
-try:
-    import thermosteam as tmo
-    import biosteam as bst
-    import google.generativeai as genai
-    LIB_READY = True
-except Exception as e:
-    LIB_READY = False
-    DETALLE_ERROR = str(e)
-
-# 3. Interfaz de Usuario
-st.title("🧪 Simulación de Procesos con BioSTEAM")
-
-if not LIB_READY:
-    st.error("❌ Error de compatibilidad en el servidor")
-    st.markdown(f"""
-    **Detalle del error:** `{DETALLE_ERROR}`
-    
-    **Causa probable:** Streamlit Cloud está usando una versión de Python demasiado nueva (3.12+). 
-    
-    **Solución:** 1. Asegúrate de tener el archivo `.python-version` en tu GitHub con el texto `3.11`.
-    2. En el panel de Streamlit Cloud, ve a **Settings** -> **Delete App** y vuelve a crearla (esto limpia el caché de Python por completo).
-    """)
+if not LIBS_OK:
+    st.error(f"Error de librerías: {ERR_DETAIL}")
     st.stop()
 
-# 4. Función de Simulación (Si las librerías cargaron)
-def ejecutar_planta(w_flow, e_flow, p_flash):
+# --- LÓGICA DE SIMULACIÓN ---
+def run_simulation(w_f, e_f, p_f):
     bst.main_flowsheet.clear()
     chemicals = tmo.Chemicals(["Water", "Ethanol"])
     bst.settings.set_thermo(chemicals)
     
-    # ... (Resto del código de la planta que definimos antes) ...
-    mosto = bst.Stream("Mosto", Water=w_flow, Ethanol=e_flow, units="kmol/h", T=298.15)
-    V100 = bst.Flash("V1", ins=mosto, outs=("Vapor", "Liquido"), P=p_flash, Q=0)
-    V100.simulate()
-    return V100
+    # Definición simplificada para evitar errores de convergencia rápidos
+    mosto = bst.Stream("Mosto", Water=w_f, Ethanol=e_f, units="kmol/h", T=298.15)
+    V1 = bst.Flash("V1", ins=mosto, outs=("Vapor", "Liquido"), P=p_f, Q=0)
+    
+    # Crear sistema
+    sys_model = bst.System("Planta", path=(V1,))
+    sys_model.simulate()
+    return sys_model, V1
 
-# 5. Controles y Resultados
-col1, col2 = st.columns([1, 2])
-with col1:
-    f_w = st.slider("Agua", 10, 100, 43)
-    f_e = st.slider("Etanol", 1, 20, 5)
-    p_f = st.number_input("Presión (Pa)", value=101325)
-    btn = st.button("Simular")
+# --- INTERFAZ ---
+st.title("🧪 Planta de Separación BioSTEAM")
 
-if btn:
-    res = ejecutar_planta(f_w, f_e, p_f)
-    with col2:
-        st.success("Simulación Exitosa")
-        st.write(f"Pureza de Etanol en Vapor: {res.outs[0].get_molar_fraction('Ethanol'):.4f}")
-        st.image(bst.main_flowsheet.diagram())
+col_in, col_out = st.columns([1, 2])
+
+with col_in:
+    st.header("Configuración")
+    f_w = st.slider("Agua (kmol/h)", 10, 100, 43)
+    f_e = st.slider("Etanol (kmol/h)", 1, 20, 5)
+    pres = st.number_input("Presión (Pa)", value=101325)
+    run = st.button("🚀 Ejecutar Simulación", use_container_width=True)
+
+if run:
+    try:
+        sys_res, v1_res = run_simulation(f_w, f_e, pres)
+        
+        with col_out:
+            # 1. KPIs
+            k1, k2 = st.columns(2)
+            k1.metric("Pureza Etanol (Vapor)", f"{v1_res.outs[0].get_molar_fraction('Ethanol'):.4f}")
+            k2.metric("Flujo Vapor", f"{v1_res.outs[0].F_mass:.2f} kg/h")
+            
+            # 2. Diagrama (Aquí ocurría el error .format)
+            st.subheader("🖼️ Diagrama de Proceso")
+            try:
+                # Intentamos generar el diagrama
+                pfd = sys_res.diagram(display=False)
+                if pfd is not None:
+                    st.image(pfd)
+                else:
+                    st.warning("⚠️ El motor de BioSTEAM no pudo generar la imagen del diagrama.")
+            except Exception as diag_err:
+                st.info("ℹ️ No se pudo renderizar el PFD. Revisa si 'graphviz' está en packages.txt.")
+
+            # 3. Tablas
+            st.subheader("📊 Resultados de Corrientes")
+            st.dataframe(sys_res.get_results().T, use_container_width=True)
+            
+    except Exception as ex:
+        st.error(f"Fallo en la corrida: {ex}")
